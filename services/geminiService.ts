@@ -1,10 +1,26 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
+// Cache the GoogleGenAI instance to avoid re-initializing
+let ai: GoogleGenAI | null = null;
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Returns a cached instance of the GoogleGenAI client.
+ * Initializes the client on the first call.
+ * Throws an error if the API key is not available.
+ */
+const getAiClient = (): GoogleGenAI => {
+    if (!ai) {
+        if (!process.env.API_KEY) {
+            // This error will now be caught by the calling function's try/catch block
+            // instead of crashing the app on load.
+            throw new Error("API_KEY environment variable not set");
+        }
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    }
+    return ai;
+};
+
 
 export type GenerationMode = 'both' | 'original' | 'coloring';
 
@@ -13,7 +29,7 @@ const generateOriginalImage = async (prompt: string): Promise<string> => {
     console.log("Generating original image...");
     const colorImagePrompt = `A vibrant, full-color image of: ${prompt}`;
 
-    const response = await ai.models.generateContent({
+    const response = await getAiClient().models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
             parts: [{ text: colorImagePrompt }],
@@ -38,7 +54,7 @@ const generateColoringPageFromImage = async (imageBase64: string): Promise<strin
     console.log("Generating coloring page from image...");
     const coloringPagePrompt = "Transform the provided image into a simple coloring book page with a clean, easy-to-color style. Use bold, solid, black lines. The final image must be strictly black and white, with no colors, shading, or gray tones. Focus on creating clear outlines and open spaces perfect for coloring.";
 
-    const response = await ai.models.generateContent({
+    const response = await getAiClient().models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
             parts: [
@@ -66,7 +82,7 @@ const generateColoringPageFromPrompt = async (prompt: string): Promise<string> =
     console.log("Generating coloring page directly from prompt...");
     const coloringPagePrompt = `A coloring book page of: ${prompt}. Use a clean, easy-to-color style with bold, solid, black lines. The final image must be strictly black and white, with no colors, shading, or gray tones. Focus on creating clear outlines and open spaces perfect for coloring.`;
 
-    const response = await ai.models.generateContent({
+    const response = await getAiClient().models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
             parts: [{ text: coloringPagePrompt }],
@@ -125,7 +141,7 @@ export const getTrendingNiches = async (): Promise<string[]> => {
         console.log("Fetching trending niches...");
         const prompt = "What are 5 current trending and popular niches for coloring books for adults and kids? Provide just the list of niche names in a JSON object with a key 'niches'.";
         
-        const response = await ai.models.generateContent({
+        const response = await getAiClient().models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
