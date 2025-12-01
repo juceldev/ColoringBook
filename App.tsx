@@ -1,9 +1,10 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
-import { generateColoringBookImages, GenerationMode, getTrendingNiches } from './services/geminiService';
+import { generateColoringBookImages, GenerationMode, getTrendingNiches, resetAiClient } from './services/geminiService';
 import ImageCard from './components/ImageCard';
 import Loader from './components/Loader';
 import HistoryPanel from './components/HistoryPanel';
-import { HistoryItem } from './types';
+import { HistoryItem, AspectRatio } from './types';
 
 const examplePrompts = [
     {
@@ -40,6 +41,10 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('A friendly cartoon dragon sitting in a field of flowers');
   const [numberOfImages, setNumberOfImages] = useState<number>(1);
   const [generationMode, setGenerationMode] = useState<GenerationMode>('both');
+  
+  // New State for Size
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('3:4');
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<{ original: string | null; coloring: string | null }[]>([]);
@@ -96,7 +101,11 @@ const App: React.FC = () => {
         for (let i = 0; i < totalToGenerate; i++) {
             setGenerationProgress({ current: i + 1, total: totalToGenerate });
             const currentPrompt = promptsToGenerate[i];
-            const { originalImage, coloringPageImage } = await generateColoringBookImages(currentPrompt, generationMode);
+            const { originalImage, coloringPageImage } = await generateColoringBookImages(
+                currentPrompt, 
+                generationMode,
+                { aspectRatio, resolution: 'standard' }
+            );
             const newImagePair = {
                 original: originalImage ? `data:image/png;base64,${originalImage}` : null,
                 coloring: coloringPageImage ? `data:image/png;base64,${coloringPageImage}` : null,
@@ -109,7 +118,8 @@ const App: React.FC = () => {
             id: new Date().toISOString(),
             prompt: prompt.trim(),
             images: results,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            config: { aspectRatio, resolution: 'standard' }
         };
         const updatedHistory = [newHistoryItem, ...history].slice(0, 10); // Keep last 10
         saveHistory(updatedHistory);
@@ -117,10 +127,19 @@ const App: React.FC = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       console.error(err);
+      
+      const win = window as any;
+      if (err instanceof Error && err.message.includes("Requested entity was not found") && win.aistudio?.openSelectKey) {
+          setError("API Key invalid or not found. Please select a valid key.");
+          resetAiClient();
+          try {
+             await win.aistudio.openSelectKey();
+          } catch(e) { /* ignore */ }
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [prompt, isLoading, generationMode, numberOfImages, history]);
+  }, [prompt, isLoading, generationMode, numberOfImages, history, aspectRatio]);
 
   const handleDownloadAll = useCallback(() => {
     if (generatedImages.length === 0) return;
@@ -172,6 +191,9 @@ const App: React.FC = () => {
   const handleSelectHistoryItem = (item: HistoryItem) => {
     setPrompt(item.prompt);
     setGeneratedImages(item.images);
+    if (item.config) {
+        setAspectRatio(item.config.aspectRatio);
+    }
     setIsHistoryPanelOpen(false);
   };
 
@@ -188,7 +210,7 @@ const App: React.FC = () => {
               AI Coloring Book Generator
             </h1>
             <p className="mt-2 text-lg text-gray-600 dark:text-gray-400">
-              Turn your ideas into beautiful images and their coloring-book counterparts.
+              Turn your ideas into beautiful images and their coloring-book counterparts using the latest Nano Banana model.
             </p>
           </header>
 
@@ -216,25 +238,44 @@ const App: React.FC = () => {
                     disabled={isLoading}
                     aria-label="Image generation prompt"
                   />
-                  <div className="flex flex-col gap-4 items-center md:items-end">
-                      <div className="flex items-center gap-2">
-                          <label htmlFor="num-images" className="font-bold text-sm">Images:</label>
-                          <input
-                              type="number"
-                              id="num-images"
-                              value={numberOfImages}
-                              onChange={(e) => setNumberOfImages(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 1)))}
-                              min="1"
-                              max="5"
-                              aria-label="Number of images to generate"
-                              className="w-20 p-2 text-center bg-gray-100 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-300"
-                              disabled={isLoading}
-                          />
+                  <div className="flex flex-col gap-4 items-center md:items-end min-w-[200px]">
+                      <div className="w-full">
+                        <label className="block text-xs font-bold uppercase text-gray-500 dark:text-gray-400 mb-1">
+                            Paper Size
+                        </label>
+                        <select
+                            value={aspectRatio}
+                            onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+                            disabled={isLoading}
+                            className="w-full p-2 bg-gray-100 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        >
+                            <option value="3:4">Letter / Portrait (8.5" x 11")</option>
+                            <option value="1:1">Square (8.5" x 8.5")</option>
+                            <option value="4:3">Landscape (11" x 8.5")</option>
+                        </select>
                       </div>
+
+                      <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-2">
+                            <label htmlFor="num-images" className="font-bold text-sm">Qty:</label>
+                            <input
+                                type="number"
+                                id="num-images"
+                                value={numberOfImages}
+                                onChange={(e) => setNumberOfImages(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 1)))}
+                                min="1"
+                                max="5"
+                                aria-label="Number of images"
+                                className="w-16 p-2 text-center bg-gray-100 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                disabled={isLoading}
+                            />
+                          </div>
+                      </div>
+
                       <button
                           type="submit"
                           disabled={isLoading || !prompt.trim()}
-                          className="w-full px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                          className="w-full px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl shadow-md hover:shadow-lg transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                       >
                           {isLoading ? 'Generating...' : 'Generate'}
                       </button>
